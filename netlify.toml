@@ -1,11 +1,16 @@
 [build]
-  command = "pnpm install && pnpm --filter @workspace/voice-lab run build"
+  command = "pnpm install --frozen-lockfile && pnpm --filter @workspace/api-spec run codegen && pnpm --filter @workspace/voice-lab run build"
   publish = "artifacts/voice-lab/dist/public"
   functions = "artifacts/voice-lab/netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
   BASE_PATH = "/"
+  PNPM_VERSION = "10"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["artifacts/voice-lab/netlify/functions/**"]
 
 [[redirects]]
   from = "/api/tts/voices"

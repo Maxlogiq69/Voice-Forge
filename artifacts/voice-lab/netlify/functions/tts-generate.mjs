@@ -35,9 +35,6 @@ export const handler = async (event) => {
   if (!text || typeof text !== "string" || text.trim().length === 0) {
     return { statusCode: 400, body: JSON.stringify({ error: "text is required" }) };
   }
-  if (text.length > 5000) {
-    return { statusCode: 400, body: JSON.stringify({ error: "text exceeds 5000 characters" }) };
-  }
   if (!voice || !ALLOWED_VOICE_IDS.has(voice)) {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid voice" }) };
   }
