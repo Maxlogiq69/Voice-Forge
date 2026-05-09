@@ -32,13 +32,12 @@ export const ListVoicesResponse = zod.array(ListVoicesResponseItem);
  * Converts text to speech using Microsoft Edge neural voices. Returns audio/mpeg stream.
  * @summary Generate speech
  */
-export const generateSpeechBodyTextMax = 5000;
 
 export const generateSpeechBodyRateDefault = `+0%`;
 export const generateSpeechBodyPitchDefault = `+0Hz`;
 
 export const GenerateSpeechBody = zod.object({
-  text: zod.string().min(1).max(generateSpeechBodyTextMax),
+  text: zod.string().min(1),
   voice: zod.string().describe("Voice ID (e.g. en-US-GuyNeural)"),
   rate: zod
     .string()

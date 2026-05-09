@@ -13,23 +13,40 @@ import {
   SelectGroup,
   SelectLabel,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Mic,
-  Play,
-  Download,
-  RotateCcw,
-  Loader2,
-  Wand2,
-  Volume2,
-} from "lucide-react";
+import { Mic, Play, Download, RotateCcw, Loader2, Wand2, Volume2, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-const PREVIEW_TEXT = "Hello, I am your selected voice. I am ready to narrate your content.";
-const MAX_CHARS = 5000;
+const FEATURED_VOICE_IDS = [
+  "en-GB-RyanNeural",
+  "en-US-GuyNeural",
+  "en-GB-SoniaNeural",
+  "en-US-DavisNeural",
+  "en-US-TonyNeural",
+];
+
+const PREVIEW_TEXT = "Hello, I am your selected voice. Ready to narrate your story with clarity and power.";
 
 function buildApiUrl(path: string) {
   return `${import.meta.env.BASE_URL}${path}`.replace(/\/\/+/g, "/");
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function countWords(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function estimateDuration(wordCount: number, speedPct: number): number {
+  const basWPM = 140;
+  const adjustedWPM = basWPM * (1 + speedPct / 100);
+  return (wordCount / adjustedWPM) * 60;
 }
 
 export default function Home() {
@@ -42,14 +59,27 @@ export default function Home() {
   const [pitch, setPitch] = useState([0]);
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const selectedVoice = voices.find((v) => v.id === voice);
-
+  const featuredVoices = voices.filter((v) => FEATURED_VOICE_IDS.includes(v.id));
   const rateStr = `${speed[0] > 0 ? "+" : ""}${speed[0]}%`;
   const pitchStr = `${pitch[0] > 0 ? "+" : ""}${pitch[0]}Hz`;
+
+  const charCount = text.length;
+  const wordCount = countWords(text);
+  const estSeconds = estimateDuration(wordCount, speed[0]);
+
+  const voicesByLocale = voices.reduce(
+    (acc, v) => {
+      if (!acc[v.locale]) acc[v.locale] = [];
+      acc[v.locale].push(v);
+      return acc;
+    },
+    {} as Record<string, typeof voices>
+  );
 
   async function fetchAudio(inputText: string, voiceId: string, rate: string, pitchVal: string): Promise<Blob> {
     const response = await fetch(buildApiUrl("api/tts/generate"), {
@@ -89,18 +119,14 @@ export default function Home() {
     }
   };
 
-  const handlePreview = async () => {
-    if (!voice) {
-      toast({ title: "Select a voice to preview", variant: "destructive" });
-      return;
-    }
+  const handlePreview = async (voiceId: string) => {
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
     }
-    setIsPreviewing(true);
+    setPreviewingId(voiceId);
     try {
-      const blob = await fetchAudio(PREVIEW_TEXT, voice, "+0%", "+0Hz");
+      const blob = await fetchAudio(PREVIEW_TEXT, voiceId, "+0%", "+0Hz");
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       previewAudioRef.current = audio;
@@ -108,12 +134,12 @@ export default function Home() {
       audio.onended = () => {
         URL.revokeObjectURL(url);
         previewAudioRef.current = null;
-        setIsPreviewing(false);
+        setPreviewingId(null);
       };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Preview failed";
       toast({ title: "Preview failed", description: message, variant: "destructive" });
-      setIsPreviewing(false);
+      setPreviewingId(null);
     }
   };
 
@@ -137,18 +163,9 @@ export default function Home() {
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       previewAudioRef.current = null;
-      setIsPreviewing(false);
+      setPreviewingId(null);
     }
   };
-
-  const voicesByLocale = voices.reduce(
-    (acc, v) => {
-      if (!acc[v.locale]) acc[v.locale] = [];
-      acc[v.locale].push(v);
-      return acc;
-    },
-    {} as Record<string, typeof voices>
-  );
 
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col">
@@ -181,24 +198,33 @@ export default function Home() {
           {/* Left: Text Input */}
           <div className="flex flex-col gap-4">
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-sm font-medium text-foreground">Script</Label>
-                <span
-                  className={`text-xs font-mono ${
-                    text.length > MAX_CHARS * 0.9 ? "text-destructive" : "text-muted-foreground"
-                  }`}
-                >
-                  {text.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
-                </span>
-              </div>
+              <Label className="text-sm font-medium text-foreground mb-2 block">Script</Label>
               <Textarea
                 placeholder="Type or paste your script here..."
                 className="min-h-[280px] md:min-h-[360px] resize-none text-sm md:text-base leading-relaxed bg-background border-border focus-visible:ring-1 focus-visible:ring-primary rounded-xl"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                maxLength={MAX_CHARS}
                 data-testid="input-text"
               />
+
+              {/* Stats bar */}
+              <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+                <span data-testid="stat-chars">
+                  <span className="font-medium text-foreground">{charCount.toLocaleString()}</span> characters
+                </span>
+                <span className="text-border">|</span>
+                <span data-testid="stat-words">
+                  <span className="font-medium text-foreground">{wordCount.toLocaleString()}</span> words
+                </span>
+                {wordCount > 0 && (
+                  <>
+                    <span className="text-border">|</span>
+                    <span data-testid="stat-duration">
+                      Est. <span className="font-medium text-foreground">{formatDuration(estSeconds)}</span> at current speed
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Audio Result */}
@@ -232,73 +258,122 @@ export default function Home() {
           {/* Right: Controls */}
           <div className="flex flex-col gap-4">
 
-            {/* Voice */}
-            <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
+            {/* Voice Selector */}
+            <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-3">
               <h2 className="text-sm font-semibold text-foreground">Voice</h2>
 
-              <div className="space-y-2">
-                <Select value={voice} onValueChange={setVoice} disabled={isLoadingVoices}>
-                  <SelectTrigger
-                    className="w-full bg-background border-border h-10 rounded-lg text-sm"
-                    data-testid="select-voice"
-                  >
-                    <SelectValue
-                      placeholder={isLoadingVoices ? "Loading voices..." : "Choose a voice"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[280px]">
-                    {Object.entries(voicesByLocale).map(([locale, localeVoices]) => (
-                      <SelectGroup key={locale}>
-                        <SelectLabel className="text-xs text-muted-foreground py-1.5 font-medium">
-                          {locale}
-                        </SelectLabel>
-                        {localeVoices.map((v) => (
-                          <SelectItem key={v.id} value={v.id} className="text-sm py-2">
-                            <span className="flex items-center gap-2">
-                              {v.friendlyName}
-                              <Badge
-                                variant="outline"
-                                className="text-[9px] px-1 py-0 h-4 font-medium leading-none"
-                              >
-                                {v.gender === "Male" ? "M" : "F"}
-                              </Badge>
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Tabs defaultValue="featured">
+                <TabsList className="w-full h-8 mb-3">
+                  <TabsTrigger value="featured" className="flex-1 text-xs gap-1.5">
+                    <Star className="w-3 h-3" />
+                    Featured
+                  </TabsTrigger>
+                  <TabsTrigger value="all" className="flex-1 text-xs">
+                    All Voices
+                  </TabsTrigger>
+                </TabsList>
 
-                {/* Voice preview row */}
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePreview}
-                    disabled={!voice || isPreviewing}
-                    className="flex-1 gap-1.5 text-xs h-8"
-                    data-testid="button-preview-voice"
-                  >
-                    {isPreviewing ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Playing...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3 h-3" />
-                        Preview voice
-                      </>
-                    )}
-                  </Button>
-                  {selectedVoice && (
-                    <span className="text-xs text-muted-foreground">
-                      {selectedVoice.gender} &middot; {selectedVoice.locale}
-                    </span>
+                {/* Featured tab — top 5 history voices as cards */}
+                <TabsContent value="featured" className="mt-0 space-y-2">
+                  {isLoadingVoices ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    featuredVoices.map((v) => (
+                      <div
+                        key={v.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setVoice(v.id)}
+                        onKeyDown={(e) => e.key === "Enter" && setVoice(v.id)}
+                        data-testid={`card-voice-${v.id}`}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                          voice === v.id
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                            : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${voice === v.id ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground leading-none mb-0.5">{v.friendlyName}</p>
+                            <p className="text-[10px] text-muted-foreground">{v.gender}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handlePreview(v.id); }}
+                          disabled={previewingId === v.id}
+                          data-testid={`button-preview-${v.id}`}
+                          className="ml-2 w-7 h-7 rounded-md flex items-center justify-center bg-muted hover:bg-primary hover:text-white transition-colors shrink-0 text-muted-foreground disabled:opacity-50"
+                        >
+                          {previewingId === v.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
+                    ))
                   )}
-                </div>
-              </div>
+                </TabsContent>
+
+                {/* All voices tab — grouped dropdown */}
+                <TabsContent value="all" className="mt-0 space-y-2">
+                  <Select value={voice} onValueChange={setVoice} disabled={isLoadingVoices}>
+                    <SelectTrigger
+                      className="w-full bg-background border-border h-10 rounded-lg text-sm"
+                      data-testid="select-voice"
+                    >
+                      <SelectValue placeholder={isLoadingVoices ? "Loading..." : "Choose a voice"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[260px]">
+                      {Object.entries(voicesByLocale).map(([locale, localeVoices]) => (
+                        <SelectGroup key={locale}>
+                          <SelectLabel className="text-xs text-muted-foreground py-1.5 font-medium">
+                            {locale}
+                          </SelectLabel>
+                          {localeVoices.map((v) => (
+                            <SelectItem key={v.id} value={v.id} className="text-sm py-2">
+                              <span className="flex items-center gap-2">
+                                {v.friendlyName}
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 font-medium leading-none">
+                                  {v.gender === "Male" ? "M" : "F"}
+                                </Badge>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Preview selected voice */}
+                  {voice && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePreview(voice)}
+                      disabled={!!previewingId}
+                      className="w-full gap-1.5 text-xs h-8"
+                      data-testid="button-preview-selected"
+                    >
+                      {previewingId === voice ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" />Playing...</>
+                      ) : (
+                        <><Play className="w-3 h-3" />Preview selected voice</>
+                      )}
+                    </Button>
+                  )}
+                </TabsContent>
+              </Tabs>
+
+              {selectedVoice && (
+                <p className="text-[11px] text-muted-foreground">
+                  Selected: <span className="font-medium text-foreground">{selectedVoice.friendlyName}</span>
+                  {" "}&middot; {selectedVoice.gender} &middot; {selectedVoice.locale}
+                </p>
+              )}
             </div>
 
             {/* Settings */}
@@ -309,18 +384,10 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-medium text-muted-foreground">Speed</Label>
                   <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded text-foreground">
-                    {speed[0] > 0 ? "+" : ""}
-                    {speed[0]}%
+                    {speed[0] > 0 ? "+" : ""}{speed[0]}%
                   </span>
                 </div>
-                <Slider
-                  value={speed}
-                  onValueChange={setSpeed}
-                  min={-50}
-                  max={50}
-                  step={1}
-                  data-testid="slider-speed"
-                />
+                <Slider value={speed} onValueChange={setSpeed} min={-50} max={50} step={1} data-testid="slider-speed" />
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>Slower</span>
                   <span>Faster</span>
@@ -331,18 +398,10 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-medium text-muted-foreground">Pitch</Label>
                   <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded text-foreground">
-                    {pitch[0] > 0 ? "+" : ""}
-                    {pitch[0]}Hz
+                    {pitch[0] > 0 ? "+" : ""}{pitch[0]}Hz
                   </span>
                 </div>
-                <Slider
-                  value={pitch}
-                  onValueChange={setPitch}
-                  min={-20}
-                  max={20}
-                  step={1}
-                  data-testid="slider-pitch"
-                />
+                <Slider value={pitch} onValueChange={setPitch} min={-20} max={20} step={1} data-testid="slider-pitch" />
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>Lower</span>
                   <span>Higher</span>
@@ -359,20 +418,14 @@ export default function Home() {
               data-testid="button-generate"
             >
               {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
+                <><Loader2 className="w-4 h-4 animate-spin" />Generating...</>
               ) : (
-                <>
-                  <Wand2 className="w-4 h-4" />
-                  Generate Speech
-                </>
+                <><Wand2 className="w-4 h-4" />Generate Speech</>
               )}
             </Button>
 
             <p className="text-[11px] text-muted-foreground text-center leading-relaxed px-2">
-              Powered by Microsoft Edge neural voices. No usage limits.
+              Powered By LogiQ History
             </p>
           </div>
         </div>

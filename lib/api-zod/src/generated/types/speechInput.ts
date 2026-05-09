@@ -7,10 +7,7 @@
  */
 
 export interface SpeechInput {
-  /**
-   * @minLength 1
-   * @maxLength 5000
-   */
+  /** @minLength 1 */
   text: string;
   /** Voice ID (e.g. en-US-GuyNeural) */
   voice: string;

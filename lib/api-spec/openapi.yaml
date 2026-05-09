@@ -113,7 +113,6 @@ components:
         text:
           type: string
           minLength: 1
-          maxLength: 5000
         voice:
           type: string
           description: Voice ID (e.g. en-US-GuyNeural)
