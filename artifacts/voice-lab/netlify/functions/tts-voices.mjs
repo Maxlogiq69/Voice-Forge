@@ -1,11 +1,4 @@
-import { Router, type IRouter } from "express";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { GenerateSpeechBody } from "@workspace/api-zod";
-import { logger } from "../lib/logger";
-
-const router: IRouter = Router();
-
-export const ALLOWED_VOICES = [
+const VOICES = [
   { id: "en-US-GuyNeural", name: "Guy", locale: "en-US", gender: "Male", friendlyName: "Guy (US)" },
   { id: "en-US-JennyNeural", name: "Jenny", locale: "en-US", gender: "Female", friendlyName: "Jenny (US)" },
   { id: "en-US-AriaNeural", name: "Aria", locale: "en-US", gender: "Female", friendlyName: "Aria (US)" },
@@ -41,61 +34,15 @@ export const ALLOWED_VOICES = [
   { id: "ko-KR-SunHiNeural", name: "SunHi", locale: "ko-KR", gender: "Female", friendlyName: "SunHi (KR)" },
   { id: "hi-IN-SwaraNeural", name: "Swara", locale: "hi-IN", gender: "Female", friendlyName: "Swara (HI)" },
   { id: "ru-RU-SvetlanaNeural", name: "Svetlana", locale: "ru-RU", gender: "Female", friendlyName: "Svetlana (RU)" },
-] as const;
+];
 
-const ALLOWED_VOICE_IDS = new Set(ALLOWED_VOICES.map((v) => v.id));
-
-router.get("/tts/voices", async (_req, res): Promise<void> => {
-  res.json(ALLOWED_VOICES);
-});
-
-router.post("/tts/generate", async (req, res): Promise<void> => {
-  const parsed = GenerateSpeechBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const { text, voice, rate = "+0%", pitch = "+0Hz" } = parsed.data;
-
-  if (!ALLOWED_VOICE_IDS.has(voice)) {
-    res.status(400).json({ error: `Voice "${voice}" is not allowed` });
-    return;
-  }
-
-  try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-
-    const { audioStream } = tts.toStream(text, { rate, pitch });
-
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Cache-Control", "no-cache");
-
-    audioStream.on("data", (chunk: Buffer) => {
-      res.write(chunk);
-    });
-
-    audioStream.on("close", () => {
-      req.log.info({ voice, textLength: text.length }, "TTS generation complete");
-      res.end();
-    });
-
-    audioStream.on("error", (err: Error) => {
-      req.log.error({ err }, "TTS stream error");
-      if (!res.headersSent) {
-        res.status(500).json({ error: "TTS generation failed" });
-      } else {
-        res.end();
-      }
-    });
-  } catch (err) {
-    logger.error({ err }, "TTS generation error");
-    if (!res.headersSent) {
-      res.status(500).json({ error: "TTS generation failed" });
-    }
-  }
-});
-
-export default router;
+export const handler = async () => {
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=86400",
+    },
+    body: JSON.stringify(VOICES),
+  };
+};

@@ -1,0 +1,23 @@
+[build]
+  command = "pnpm install && pnpm --filter @workspace/voice-lab run build"
+  publish = "artifacts/voice-lab/dist/public"
+  functions = "artifacts/voice-lab/netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+  BASE_PATH = "/"
+
+[[redirects]]
+  from = "/api/tts/voices"
+  to = "/.netlify/functions/tts-voices"
+  status = 200
+
+[[redirects]]
+  from = "/api/tts/generate"
+  to = "/.netlify/functions/tts-generate"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
