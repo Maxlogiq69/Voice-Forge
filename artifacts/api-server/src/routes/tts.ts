@@ -44,6 +44,56 @@ export const ALLOWED_VOICES = [
 ] as const;
 
 const ALLOWED_VOICE_IDS = new Set(ALLOWED_VOICES.map((v) => v.id));
+const TIMEOUT_MS = 20_000;
+
+async function generateAudio(
+  voice: string,
+  text: string,
+  rate: string,
+  pitch: string,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("TTS timed out after 20s"));
+    }, TIMEOUT_MS);
+
+    (async () => {
+      try {
+        const tts = new MsEdgeTTS();
+        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+        const { audioStream } = tts.toStream(text, { rate, pitch });
+
+        const chunks: Buffer[] = [];
+
+        audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+        audioStream.on("end", () => {
+          clearTimeout(timer);
+          const buf = Buffer.concat(chunks);
+          if (buf.length === 0) {
+            reject(new Error("TTS returned empty audio"));
+          } else {
+            resolve(buf);
+          }
+        });
+
+        audioStream.on("close", () => {
+          clearTimeout(timer);
+          const buf = Buffer.concat(chunks);
+          if (buf.length > 0) resolve(buf);
+        });
+
+        audioStream.on("error", (err: Error) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+      }
+    })();
+  });
+}
 
 router.get("/tts/voices", async (_req, res): Promise<void> => {
   res.json(ALLOWED_VOICES);
@@ -63,39 +113,26 @@ router.post("/tts/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+  let lastErr: unknown;
 
-    const { audioStream } = tts.toStream(text, { rate, pitch });
-
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Cache-Control", "no-cache");
-
-    audioStream.on("data", (chunk: Buffer) => {
-      res.write(chunk);
-    });
-
-    audioStream.on("close", () => {
-      req.log.info({ voice, textLength: text.length }, "TTS generation complete");
-      res.end();
-    });
-
-    audioStream.on("error", (err: Error) => {
-      req.log.error({ err }, "TTS stream error");
-      if (!res.headersSent) {
-        res.status(500).json({ error: "TTS generation failed" });
-      } else {
-        res.end();
-      }
-    });
-  } catch (err) {
-    logger.error({ err }, "TTS generation error");
-    if (!res.headersSent) {
-      res.status(500).json({ error: "TTS generation failed" });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const buffer = await generateAudio(voice, text, rate, pitch);
+      req.log.info({ voice, textLength: text.length, attempt }, "TTS generation complete");
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Content-Length", String(buffer.length));
+      res.setHeader("Cache-Control", "no-cache");
+      res.status(200).send(buffer);
+      return;
+    } catch (err) {
+      lastErr = err;
+      req.log.warn({ err, attempt, voice }, "TTS attempt failed, retrying");
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
     }
   }
+
+  logger.error({ err: lastErr, voice }, "TTS generation failed after retries");
+  res.status(500).json({ error: "Speech generation failed. Please try again." });
 });
 
 export default router;

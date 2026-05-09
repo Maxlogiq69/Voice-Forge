@@ -526,7 +526,12 @@ export default function Home() {
 
                 {/* Drawer header */}
                 <div className="px-5 pt-2 pb-3 flex items-center justify-between shrink-0 border-b border-border">
-                  <span className="text-sm font-semibold text-foreground">Voice &amp; Settings</span>
+                  <Drawer.Title className="text-sm font-semibold text-foreground">
+                    Voice &amp; Settings
+                  </Drawer.Title>
+                  <Drawer.Description className="sr-only">
+                    Select a voice and configure speech settings
+                  </Drawer.Description>
                   <button
                     onClick={() => setDrawerOpen(false)}
                     className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded"
