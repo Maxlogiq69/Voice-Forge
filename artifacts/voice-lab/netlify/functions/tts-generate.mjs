@@ -1,6 +1,4 @@
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 const ALLOWED_VOICE_IDS = new Set([
   "en-US-GuyNeural", "en-US-JennyNeural", "en-US-AriaNeural", "en-US-DavisNeural",

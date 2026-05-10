@@ -64,26 +64,26 @@ async function generateAudio(
         const { audioStream } = tts.toStream(text, { rate, pitch });
 
         const chunks: Buffer[] = [];
+        let settled = false;
 
-        audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
-
-        audioStream.on("end", () => {
+        function settle(buf: Buffer) {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
-          const buf = Buffer.concat(chunks);
           if (buf.length === 0) {
             reject(new Error("TTS returned empty audio"));
           } else {
             resolve(buf);
           }
-        });
+        }
 
-        audioStream.on("close", () => {
-          clearTimeout(timer);
-          const buf = Buffer.concat(chunks);
-          if (buf.length > 0) resolve(buf);
-        });
+        audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        audioStream.on("end", () => settle(Buffer.concat(chunks)));
+        audioStream.on("close", () => settle(Buffer.concat(chunks)));
 
         audioStream.on("error", (err: Error) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           reject(err);
         });
@@ -127,7 +127,7 @@ router.post("/tts/generate", async (req, res): Promise<void> => {
     } catch (err) {
       lastErr = err;
       req.log.warn({ err, attempt, voice }, "TTS attempt failed, retrying");
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
