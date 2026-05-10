@@ -61,14 +61,30 @@ function estimateDuration(wordCount: number, speedPct: number): number {
   return (wordCount / adjustedWPM) * 60;
 }
 
+function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [val, setVal] = useState<T>(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored !== null ? (JSON.parse(stored) as T) : initial;
+    } catch {
+      return initial;
+    }
+  });
+  const set = (v: T) => {
+    setVal(v);
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ }
+  };
+  return [val, set];
+}
+
 export default function Home() {
   const { data: voices = [], isLoading: isLoadingVoices } = useListVoices();
   const { toast } = useToast();
 
   const [text, setText] = useState("");
-  const [voice, setVoice] = useState("");
-  const [speed, setSpeed] = useState([0]);
-  const [pitch, setPitch] = useState([0]);
+  const [voice, setVoice] = usePersisted<string>("vl_voice", "");
+  const [speed, setSpeed] = usePersisted<number[]>("vl_speed", [0]);
+  const [pitch, setPitch] = usePersisted<number[]>("vl_pitch", [0]);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
