@@ -9,8 +9,7 @@
   PNPM_VERSION = "10"
 
 [functions]
-  node_bundler = "esbuild"
-  included_files = ["artifacts/voice-lab/netlify/functions/**"]
+  node_bundler = "nft"
 
 [[redirects]]
   from = "/api/tts/voices"

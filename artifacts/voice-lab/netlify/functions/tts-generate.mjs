@@ -1,4 +1,6 @@
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
 
 const ALLOWED_VOICE_IDS = new Set([
   "en-US-GuyNeural", "en-US-JennyNeural", "en-US-AriaNeural", "en-US-DavisNeural",
@@ -17,6 +19,52 @@ const ALLOWED_VOICE_IDS = new Set([
   "ar-SA-ZariyahNeural", "ko-KR-SunHiNeural",
   "hi-IN-SwaraNeural", "ru-RU-SvetlanaNeural",
 ]);
+
+const TIMEOUT_MS = 20000;
+
+function generateAudio(voice, text, rate, pitch) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("TTS timed out after 20s"));
+    }, TIMEOUT_MS);
+
+    (async () => {
+      try {
+        const tts = new MsEdgeTTS();
+        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+        const { audioStream } = tts.toStream(text, { rate, pitch });
+
+        const chunks = [];
+        let resolved = false;
+
+        function finish() {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          const buf = Buffer.concat(chunks);
+          if (buf.length === 0) {
+            reject(new Error("TTS returned empty audio"));
+          } else {
+            resolve(buf);
+          }
+        }
+
+        audioStream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        audioStream.on("end", finish);
+        audioStream.on("close", finish);
+        audioStream.on("error", (err) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          reject(err);
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        reject(err);
+      }
+    })();
+  });
+}
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -39,35 +87,31 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid voice" }) };
   }
 
-  try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+  let lastErr;
 
-    const { audioStream } = tts.toStream(text, { rate, pitch });
-
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      audioStream.on("data", (chunk) => chunks.push(chunk));
-      audioStream.on("close", resolve);
-      audioStream.on("error", reject);
-    });
-
-    const buffer = Buffer.concat(chunks);
-
-    return {
-      statusCode: 200,
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Cache-Control": "no-cache",
-      },
-      body: buffer.toString("base64"),
-      isBase64Encoded: true,
-    };
-  } catch (err) {
-    console.error("TTS generation error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "TTS generation failed" }),
-    };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const buffer = await generateAudio(voice, text, rate, pitch);
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Cache-Control": "no-cache",
+        },
+        body: buffer.toString("base64"),
+        isBase64Encoded: true,
+      };
+    } catch (err) {
+      lastErr = err;
+      console.error(`TTS attempt ${attempt} failed:`, err?.message || err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
   }
+
+  return {
+    statusCode: 500,
+    body: JSON.stringify({ error: "Speech generation failed. Please try again." }),
+  };
 };
